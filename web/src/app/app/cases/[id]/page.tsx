@@ -138,32 +138,33 @@ export default function CasePage() {
   }
 
   async function generateEvidenceReport() {
-    if (!caseId || !selectedEvidenceId) {
-      setErr("Select evidence before creating a report.");
-      return;
+  if (!caseId || !selectedEvidenceId) {
+    setErr("Select evidence before creating a report.");
+    return;
+  }
+
+  setBusy(true);
+  setErr(null);
+
+  try {
+    const res = await apiFetch(
+      `/cases/${caseId}/evidence/${selectedEvidenceId}/report`,
+      { method: "POST" }
+    );
+
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(t || "Report generation failed");
     }
 
-    setBusy(true);
-    setErr(null);
-
-    try {
-  const res = await apiFetch(`/cases/${caseId}/evidence/${selectedEvidenceId}/report`, {
-    method: "POST",
-  });
-
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(t || "Report generation failed");
+    const blob = await res.blob();
+    downloadBlob(blob, `truthsig-evidence-${selectedEvidenceId}.pdf`);
+  } catch (e: any) {
+    setErr(e?.message || "Report failed");
+  } finally {
+    setBusy(false);
   }
-
-  const blob = await res.blob();
-  downloadBlob(blob, `truthsig-evidence-${selectedEvidenceId}.pdf`);
-} catch (e: any) {
-  setErr(e?.message || "Report failed");
-} finally {
-  setBusy(false);
 }
-  }
 
   const selectedEvidence = useMemo(
     () => evidence.find((e) => e.id === selectedEvidenceId) || evidence[0] || null,

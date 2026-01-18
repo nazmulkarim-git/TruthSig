@@ -808,7 +808,6 @@ async def generate_report(
         "c2pa": {},
         "derived_timeline": {},
         "metadata_consistency": {},
-@@ -678,26 +810,37 @@ async def generate_report(
         "what_would_make_verifiable": [],
         "decision_context": {
             "purpose": "Legal and forensic documentation of digital evidence."
@@ -816,7 +815,6 @@ async def generate_report(
         "report_integrity": {
             "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         },
-        )
     }
 
     # Attach evidence
@@ -834,7 +832,6 @@ async def generate_report(
         pdf_path,
         media_type="application/pdf",
         filename=f"TruthSig-report-{req.case_id}.pdf",
-    
     )
     
 
