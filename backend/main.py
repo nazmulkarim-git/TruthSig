@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 import secrets
 import time
+import requests
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 import tempfile
