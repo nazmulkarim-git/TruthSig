@@ -63,7 +63,9 @@ export default function CasePage() {
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [file, setFile] = useState<File | null>(null);
-  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(
+    null,
+  );
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -94,11 +96,13 @@ export default function CasePage() {
 
   useEffect(() => {
     if (!evidence.length) return;
-    if (!selectedEvidenceId || !evidence.find((item) => item.id === selectedEvidenceId)) {
+    if (
+      !selectedEvidenceId ||
+      !evidence.find((item) => item.id === selectedEvidenceId)
+    ) {
       setSelectedEvidenceId(evidence[0].id);
     }
   }, [evidence, selectedEvidenceId]);
-
 
   async function uploadAndAnalyze() {
     if (!caseId) {
@@ -138,40 +142,40 @@ export default function CasePage() {
   }
 
   async function generateEvidenceReport() {
-  if (!caseId || !selectedEvidenceId) {
-    setErr("Select evidence before creating a report.");
-    return;
-  }
-
-  setBusy(true);
-  setErr(null);
-
-  try {
-    const res = await apiFetch(
-      `/cases/${caseId}/evidence/${selectedEvidenceId}/report`,
-      { method: "POST" }
-    );
-
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(t || "Report generation failed");
+    if (!caseId || !selectedEvidenceId) {
+      setErr("Select evidence before creating a report.");
+      return;
     }
 
-    const blob = await res.blob();
-    downloadBlob(blob, `truthsig-evidence-${selectedEvidenceId}.pdf`);
-  } catch (e: any) {
-    setErr(e?.message || "Report failed");
-  } finally {
-    setBusy(false);
+    setBusy(true);
+    setErr(null);
+
+    try {
+      const res = await apiFetch(
+        `/cases/${caseId}/evidence/${selectedEvidenceId}/report`,
+        { method: "POST" },
+      );
+
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || "Report generation failed");
+      }
+
+      const blob = await res.blob();
+      downloadBlob(blob, `truthsig-evidence-${selectedEvidenceId}.pdf`);
+    } catch (e: any) {
+      setErr(e?.message || "Report failed");
+    } finally {
+      setBusy(false);
+    }
   }
-}
 
   const selectedEvidence = useMemo(
     () => evidence.find((e) => e.id === selectedEvidenceId) || evidence[0] || null,
     [evidence, selectedEvidenceId],
   );
-  const analysis = selectedEvidence?.analysis_json;
 
+  const analysis = selectedEvidence?.analysis_json;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-blue-50">
@@ -197,18 +201,26 @@ export default function CasePage() {
           <div className="space-y-6 md:col-span-2">
             <Card>
               <CardHeader>
-                <CardTitle>{caze ? caze.title : "Loading…"}</CardTitle>
-                  {caze?.status ? <Badge>{caze.status}</Badge> : null}
-                  {caze?.created_at ? (
-                    <span className="text-xs text-slate-500">
-                      Created {new Date(caze.created_at).toLocaleString()}
-                    </span>
-                  ) : null}
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-[12rem]">
+                    <CardTitle>{caze ? caze.title : "Loading…"}</CardTitle>
+                    {caze?.created_at ? (
+                      <div className="mt-1 text-xs text-slate-500">
+                        Created {new Date(caze.created_at).toLocaleString()}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {caze?.status ? <Badge>{caze.status}</Badge> : null}
+                  </div>
                 </div>
-                {caze?.description ? (
-                  <p className="mt-3 text-sm text-slate-700">{caze.description}</p>
-                ) : null}
-              </CardContent>
+              </CardHeader>
+
+              {caze?.description ? (
+                <CardContent>
+                  <p className="text-sm text-slate-700">{caze.description}</p>
+                </CardContent>
+              ) : null}
             </Card>
 
             <Card>
@@ -225,7 +237,7 @@ export default function CasePage() {
                     evidence.map((e) => (
                       <div
                         key={e.id}
-                        className={`rounded-lg border p-3 ${
+                        className={`cursor-pointer rounded-lg border p-3 transition-colors ${
                           selectedEvidence?.id === e.id
                             ? "border-blue-400 bg-blue-50/40"
                             : "border-slate-200"
@@ -234,7 +246,8 @@ export default function CasePage() {
                         role="button"
                         tabIndex={0}
                         onKeyDown={(ev) => {
-                          if (ev.key === "Enter") setSelectedEvidenceId(e.id);
+                          if (ev.key === "Enter" || ev.key === " ")
+                            setSelectedEvidenceId(e.id);
                         }}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -252,7 +265,9 @@ export default function CasePage() {
                             ) : null}
                           </div>
                           <div className="flex flex-col items-end gap-2">
-                            {e.provenance_state ? <Badge>{e.provenance_state}</Badge> : null}
+                            {e.provenance_state ? (
+                              <Badge>{e.provenance_state}</Badge>
+                            ) : null}
                             {e.created_at ? (
                               <div className="text-xs text-slate-500">
                                 {new Date(e.created_at).toLocaleString()}
@@ -275,7 +290,9 @@ export default function CasePage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                  <div className="text-xs uppercase text-slate-500">Latest scan</div>
+                  <div className="text-xs uppercase text-slate-500">
+                    Latest scan
+                  </div>
                   {analysis ? (
                     <div className="mt-2 space-y-2">
                       <div className="flex items-center justify-between">
@@ -285,13 +302,16 @@ export default function CasePage() {
                         <Badge>{analysis.trust_score ?? "—"}</Badge>
                       </div>
                       <div className="text-xs text-slate-600">
-                        {analysis.one_line_rationale || "No rationale available yet."}
+                        {analysis.one_line_rationale ||
+                          "No rationale available yet."}
                       </div>
                       {analysis.top_reasons?.length ? (
                         <ul className="list-disc space-y-1 pl-4 text-xs text-slate-600">
-                          {analysis.top_reasons.slice(0, 3).map((reason: string) => (
-                            <li key={reason}>{reason}</li>
-                          ))}
+                          {analysis.top_reasons
+                            .slice(0, 3)
+                            .map((reason: string) => (
+                              <li key={reason}>{reason}</li>
+                            ))}
                         </ul>
                       ) : null}
                     </div>
@@ -301,8 +321,11 @@ export default function CasePage() {
                     </div>
                   )}
                 </div>
+
                 <div className="space-y-1">
-                  <label className="text-sm text-slate-700">Select file (image or video)</label>
+                  <label className="text-sm text-slate-700">
+                    Select file (image or video)
+                  </label>
                   <Input
                     type="file"
                     onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -317,13 +340,20 @@ export default function CasePage() {
                   >
                     {busy ? "Working…" : "Quick Scan + Add to case"}
                   </Button>
-                  <Button disabled={busy || !selectedEvidence} onClick={generateEvidenceReport} variant="outline">
+                  <Button
+                    disabled={busy || !selectedEvidence}
+                    onClick={generateEvidenceReport}
+                    variant="outline"
+                  >
                     Create Evidence PDF
                   </Button>
                 </div>
+
                 {analysis?.forensics?.type === "image" ? (
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold text-slate-700">ELA heatmap</div>
+                    <div className="text-xs font-semibold text-slate-700">
+                      ELA heatmap
+                    </div>
                     <img
                       src={`/cases/${caseId}/evidence/${selectedEvidence?.id}/artifact?kind=heatmap`}
                       alt="ELA heatmap"
@@ -332,18 +362,23 @@ export default function CasePage() {
                   </div>
                 ) : null}
 
-                {analysis?.forensics?.type === "video" && analysis?.forensics?.results?.flagged_frames?.length ? (
+                {analysis?.forensics?.type === "video" &&
+                analysis?.forensics?.results?.flagged_frames?.length ? (
                   <div className="space-y-2">
-                    <div className="text-xs font-semibold text-slate-700">Flagged frames</div>
+                    <div className="text-xs font-semibold text-slate-700">
+                      Flagged frames
+                    </div>
                     <div className="grid grid-cols-3 gap-2">
-                      {analysis.forensics.results.flagged_frames.slice(0, 3).map((frame: any) => (
-                        <img
-                          key={frame.index}
-                          src={`/cases/${caseId}/evidence/${selectedEvidence?.id}/artifact?kind=frame&index=${frame.index}`}
-                          alt={`Frame ${frame.index}`}
-                          className="rounded-md border border-slate-200"
-                        />
-                      ))}
+                      {analysis.forensics.results.flagged_frames
+                        .slice(0, 3)
+                        .map((frame: any) => (
+                          <img
+                            key={frame.index}
+                            src={`/cases/${caseId}/evidence/${selectedEvidence?.id}/artifact?kind=frame&index=${frame.index}`}
+                            alt={`Frame ${frame.index}`}
+                            className="rounded-md border border-slate-200"
+                          />
+                        ))}
                     </div>
                   </div>
                 ) : null}
@@ -372,5 +407,20 @@ export default function CasePage() {
                             {ev.actor || "user"}
                           </div>
                         </div>
-
-                        
+                        <div className="text-xs text-slate-500">
+                          {ev.created_at
+                            ? new Date(ev.created_at).toLocaleString()
+                            : ""}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
