@@ -147,22 +147,22 @@ export default function CasePage() {
     setErr(null);
 
     try {
-      async function generateEvidenceReport() {
-    if (!caseId || !selectedEvidenceId) {
-      setErr("Select evidence before creating a report.");
+  const res = await apiFetch(`/cases/${caseId}/evidence/${selectedEvidenceId}/report`, {
+    method: "POST",
+  });
 
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || "Report generation failed");
-      }
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(t || "Report generation failed");
+  }
 
-      const blob = await res.blob();
-      downloadBlob(blob, `truthsig-evidence-${selectedEvidenceId}.pdf`);
-    } catch (e: any) {
-      setErr(e?.message || "Report failed");
-    } finally {
-      setBusy(false);
-    }
+  const blob = await res.blob();
+  downloadBlob(blob, `truthsig-evidence-${selectedEvidenceId}.pdf`);
+} catch (e: any) {
+  setErr(e?.message || "Report failed");
+} finally {
+  setBusy(false);
+}
   }
 
   const selectedEvidence = useMemo(
@@ -197,7 +197,6 @@ export default function CasePage() {
             <Card>
               <CardHeader>
                 <CardTitle>{caze ? caze.title : "Loading…"}</CardTitle>
-@@ -227,114 +203,176 @@ export default function CasePage() {
                   {caze?.status ? <Badge>{caze.status}</Badge> : null}
                   {caze?.created_at ? (
                     <span className="text-xs text-slate-500">
@@ -372,3 +371,5 @@ export default function CasePage() {
                             {ev.actor || "user"}
                           </div>
                         </div>
+
+                        

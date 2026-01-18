@@ -525,9 +525,9 @@ async def list_case_evidence(
 
 @app.post("/cases/{case_id}/evidence")
 async def upload_case_evidence(
+    request: Request,
     case_id: str,
     file: UploadFile = File(...),
-    request: Request,
     pool=Depends(get_pool),
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
 ):
