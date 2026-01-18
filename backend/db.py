@@ -25,7 +25,29 @@ async def create_pool() -> asyncpg.Pool:
     dsn = os.getenv("DATABASE_URL", "")
     if not dsn:
         raise RuntimeError("DATABASE_URL is not set")
-    return await asyncpg.create_pool(dsn, min_size=1, max_size=5)
+
+    async def _init_connection(con: asyncpg.Connection) -> None:
+        # Ensure JSON/JSONB columns come back as dict/list instead of strings
+        await con.set_type_codec(
+            "json",
+            encoder=json.dumps,
+            decoder=json.loads,
+            schema="pg_catalog",
+        )
+        await con.set_type_codec(
+            "jsonb",
+            encoder=json.dumps,
+            decoder=json.loads,
+            schema="pg_catalog",
+            format="binary",
+        )
+
+    return await asyncpg.create_pool(
+        dsn,
+        min_size=1,
+        max_size=5,
+        init=_init_connection,
+    )
 
 
 async def init_db(pool: asyncpg.Pool) -> None:

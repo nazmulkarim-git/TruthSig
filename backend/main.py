@@ -3,6 +3,7 @@ import os
 import secrets
 import time
 import requests
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 import tempfile
@@ -30,6 +31,18 @@ JWT_EXPIRE_HOURS = config.JWT_EXPIRE_HOURS
 
 bearer = HTTPBearer(auto_error=False)
 
+def _ensure_dict(value: Any) -> Dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value) if value.strip() else {}
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
 
 def make_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
@@ -646,7 +659,7 @@ async def get_evidence_artifact(
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
 
-    analysis = evidence.get("analysis_json") or {}
+    analysis = _ensure_dict(evidence.get("analysis_json"))
     forensics = analysis.get("forensics") or {}
     path = None
     if kind == "heatmap":
@@ -689,7 +702,7 @@ async def generate_evidence_report(
         raise HTTPException(status_code=404, detail="Evidence not found")
 
     events = await db.list_evidence_events(pool, evidence_id, limit=30)
-    analysis = evidence.get("analysis_json") or {}
+    analysis = _ensure_dict(evidence.get("analysis_json"))
     analysis["report_integrity"] = {
         "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
     }
@@ -751,7 +764,7 @@ async def public_evidence(token: str, pool=Depends(get_pool)):
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
 
-    analysis = evidence.get("analysis_json") or {}
+    analysis = _ensure_dict(evidence.get("analysis_json"))
     public_forensics = analysis.get("forensics") or {}
     if isinstance(public_forensics, dict):
         public_forensics = dict(public_forensics)
