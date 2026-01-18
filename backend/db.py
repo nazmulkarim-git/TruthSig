@@ -39,7 +39,6 @@ async def create_pool() -> asyncpg.Pool:
             encoder=json.dumps,
             decoder=json.loads,
             schema="pg_catalog",
-            format="binary",
         )
 
     return await asyncpg.create_pool(
