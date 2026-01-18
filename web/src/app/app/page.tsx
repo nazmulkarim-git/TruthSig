@@ -69,10 +69,10 @@ export default function Dashboard() {
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-xs font-medium text-blue-700">TruthStamp</div>
-            <h1 className="text-2xl font-semibold tracking-tight">Evidence Workspace</h1>
+            <div className="text-xs font-medium text-blue-700">TruthSig</div>
+            <h1 className="text-2xl font-semibold tracking-tight">Newsroom Evidence Workspace</h1>
             <p className="mt-1 text-sm text-slate-600">
-              Organize any photo/video as evidence. Build chain-of-custody. Generate decision-grade reports.
+              Run quick scans, capture provenance signals, and generate newsroom-ready evidence reports.
             </p>
           </div>
           <Button variant="secondary" onClick={signOut}>
@@ -149,7 +149,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="mt-3 text-xs text-slate-500">
-                  YC signal: cases + chain-of-custody makes TruthStamp a system of record, not a metadata viewer.
+                  YC signal: cases + chain-of-custody makes TruthSig a system of record, not a metadata viewer.
                 </div>
               </div>
             </Card>

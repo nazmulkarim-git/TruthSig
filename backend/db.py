@@ -105,6 +105,19 @@ async def init_db(pool: asyncpg.Pool) -> None:
 
         await con.execute(
             """
+            CREATE TABLE IF NOT EXISTS evidence_public_links (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              evidence_id UUID NOT NULL REFERENCES evidence(id) ON DELETE CASCADE,
+              token TEXT UNIQUE NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              revoked_at TIMESTAMPTZ
+            );
+            """
+        )
+
+
+        await con.execute(
+            """
             ALTER TABLE users
             ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ;
             ALTER TABLE users
@@ -514,6 +527,34 @@ async def list_case_evidence(pool: asyncpg.Pool, case_id: str):
         )
     return [dict(r) for r in rows]
 
+async def get_case_evidence(pool: asyncpg.Pool, case_id: str, evidence_id: str) -> Optional[Dict[str, Any]]:
+    async with pool.acquire() as con:
+        row = await con.fetchrow(
+            """
+            SELECT id, case_id, filename, sha256, media_type, bytes,
+                   provenance_state, summary, analysis_json, created_at
+            FROM evidence
+            WHERE case_id = $1 AND id = $2
+            """,
+            case_id,
+            evidence_id,
+        )
+    return dict(row) if row else None
+
+
+async def get_evidence_by_id(pool: asyncpg.Pool, evidence_id: str) -> Optional[Dict[str, Any]]:
+    async with pool.acquire() as con:
+        row = await con.fetchrow(
+            """
+            SELECT id, case_id, filename, sha256, media_type, bytes,
+                   provenance_state, summary, analysis_json, created_at
+            FROM evidence
+            WHERE id = $1
+            """,
+            evidence_id,
+        )
+    return dict(row) if row else None
+
 
 async def insert_evidence(
     pool: asyncpg.Pool,
@@ -556,16 +597,143 @@ async def insert_evidence(
 
 
 async def list_case_events(pool: asyncpg.Pool, case_id: str, limit: int = 50):
-    evidence = await list_case_evidence(pool, case_id)
-
-    events = []
-    for e in evidence[:limit]:
-        events.append(
-            {
-                "id": str(e["id"]),                      # use evidence id
-                "event_type": "evidence_added",
-                "actor": "user",
-                "created_at": e["created_at"],
-            }
+    async with pool.acquire() as con:
+        rows = await con.fetch(
+            """
+            SELECT id, case_id, evidence_id, event_type, actor, ip, user_agent,
+                   details_json, created_at
+            FROM events
+            WHERE case_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+            """,
+            case_id,
+            limit,
         )
-    return events
+    return [dict(r) for r in rows]
+
+
+async def list_evidence_events(pool: asyncpg.Pool, evidence_id: str, limit: int = 50):
+    async with pool.acquire() as con:
+        rows = await con.fetch(
+            """
+            SELECT id, case_id, evidence_id, event_type, actor, ip, user_agent,
+                   details_json, created_at
+            FROM events
+            WHERE evidence_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2
+            """,
+            evidence_id,
+            limit,
+        )
+    return [dict(r) for r in rows]
+
+
+async def insert_event(
+    pool: asyncpg.Pool,
+    *,
+    case_id: Optional[str],
+    evidence_id: Optional[str],
+    event_type: str,
+    actor: Optional[str] = None,
+    ip: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    async with pool.acquire() as con:
+        await con.execute(
+            """
+            INSERT INTO events (
+                case_id, evidence_id, event_type, actor, ip, user_agent, details_json
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+            """,
+            case_id,
+            evidence_id,
+            event_type,
+            actor,
+            ip,
+            user_agent,
+            json.dumps(details or {}),
+        )
+
+
+async def create_evidence_public_link(
+    pool: asyncpg.Pool,
+    *,
+    evidence_id: str,
+    token: str,
+) -> Dict[str, Any]:
+    async with pool.acquire() as con:
+        row = await con.fetchrow(
+            """
+            INSERT INTO evidence_public_links (evidence_id, token)
+            VALUES ($1, $2)
+            RETURNING id, evidence_id, token, created_at, revoked_at
+            """,
+            evidence_id,
+            token,
+        )
+    return dict(row)
+
+
+async def get_public_link(pool: asyncpg.Pool, token: str) -> Optional[Dict[str, Any]]:
+    async with pool.acquire() as con:
+        row = await con.fetchrow(
+            """
+            SELECT id, evidence_id, token, created_at, revoked_at
+            FROM evidence_public_links
+            WHERE token = $1
+            """,
+            token,
+        )
+    return dict(row) if row else None
+
+
+async def metrics_summary(pool: asyncpg.Pool, days: int) -> Dict[str, Any]:
+    async with pool.acquire() as con:
+        scans = await con.fetch(
+            """
+            SELECT date_trunc('day', created_at) AS day, COUNT(*) AS count
+            FROM events
+            WHERE event_type = 'SCAN_CREATED'
+              AND created_at >= now() - ($1 || ' days')::interval
+            GROUP BY day
+            ORDER BY day
+            """,
+            days,
+        )
+        pdfs = await con.fetch(
+            """
+            SELECT date_trunc('day', created_at) AS day, COUNT(*) AS count
+            FROM events
+            WHERE event_type = 'PDF_EXPORTED'
+              AND created_at >= now() - ($1 || ' days')::interval
+            GROUP BY day
+            ORDER BY day
+            """,
+            days,
+        )
+        latency = await con.fetchrow(
+            """
+            SELECT
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY (details_json->>'latency_ms')::float) AS p50,
+              percentile_cont(0.95) WITHIN GROUP (ORDER BY (details_json->>'latency_ms')::float) AS p95
+            FROM events
+            WHERE event_type = 'SCAN_CREATED'
+              AND details_json ? 'latency_ms'
+              AND created_at >= now() - ($1 || ' days')::interval
+            """,
+            days,
+        )
+
+    def _rows(rows):
+        return [{"day": r["day"].date().isoformat(), "count": int(r["count"])} for r in rows]
+
+    return {
+        "scans_per_day": _rows(scans),
+        "pdf_exports_per_day": _rows(pdfs),
+        "median_scan_latency_ms": float(latency["p50"]) if latency and latency["p50"] is not None else None,
+        "p95_scan_latency_ms": float(latency["p95"]) if latency and latency["p95"] is not None else None,
+    }

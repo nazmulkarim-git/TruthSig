@@ -27,6 +27,7 @@ type Evidence = {
   created_at?: string | null;
   summary?: string | null;
   provenance_state?: string | null;
+  analysis_json?: any;
 };
 
 type Event = {
@@ -62,6 +63,7 @@ export default function CasePage() {
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [file, setFile] = useState<File | null>(null);
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -89,6 +91,14 @@ export default function CasePage() {
     refreshAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
+
+  useEffect(() => {
+    if (!evidence.length) return;
+    if (!selectedEvidenceId || !evidence.find((item) => item.id === selectedEvidenceId)) {
+      setSelectedEvidenceId(evidence[0].id);
+    }
+  }, [evidence, selectedEvidenceId]);
+
 
   async function uploadAndAnalyze() {
     if (!caseId) {
@@ -127,9 +137,9 @@ export default function CasePage() {
     }
   }
 
-  async function generateReport() {
-    if (!caseId) {
-      setErr("Missing case id in URL.");
+  async function generateEvidenceReport() {
+    if (!caseId || !selectedEvidenceId) {
+      setErr("Select evidence before creating a report.");
       return;
     }
 
@@ -137,63 +147,30 @@ export default function CasePage() {
     setErr(null);
 
     try {
-      // IMPORTANT:
-      // POST /report expects JSON: { case_id: "..." }
-      // It may return:
-      //   - application/pdf (if you implement PDF in backend), OR
-      //   - application/json with { markdown: "..." } (current backend behavior)
-      const res = await apiFetch(`/report`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ case_id: caseId }),
-      });
+      async function generateEvidenceReport() {
+    if (!caseId || !selectedEvidenceId) {
+      setErr("Select evidence before creating a report.");
 
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || "Report generation failed");
       }
 
-      const ct = (res.headers.get("content-type") || "").toLowerCase();
-
-      // If backend returns a real PDF
-      if (ct.includes("application/pdf")) {
-        const blob = await res.blob();
-        downloadBlob(blob, `truthsig-report-${caseId}.pdf`);
-        return;
-      }
-
-      // If backend returns JSON markdown (current backend/main.py)
-      if (ct.includes("application/json")) {
-        const data = await res.json().catch(() => null);
-        const md = data?.markdown;
-
-        if (typeof md === "string" && md.trim().length > 0) {
-          const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
-          downloadBlob(blob, `truthsig-report-${caseId}.md`);
-          // Optional: show message
-          setErr("Backend returned MARKDOWN (not PDF). Downloaded as .md. If you want PDF, backend must return application/pdf.");
-          return;
-        }
-
-        // JSON but not expected shape
-        const raw = JSON.stringify(data ?? {}, null, 2);
-        const blob = new Blob([raw], { type: "application/json;charset=utf-8" });
-        downloadBlob(blob, `truthsig-report-${caseId}.json`);
-        setErr("Backend returned JSON (not PDF). Downloaded as .json.");
-        return;
-      }
-
-      // Fallback: download whatever it is (text/html, etc.)
-      const raw = await res.text();
-      const blob = new Blob([raw], { type: ct || "text/plain;charset=utf-8" });
-      downloadBlob(blob, `truthsig-report-${caseId}.txt`);
-      setErr(`Backend did not return a PDF. Downloaded as .txt (content-type: ${ct || "unknown"}).`);
+      const blob = await res.blob();
+      downloadBlob(blob, `truthsig-evidence-${selectedEvidenceId}.pdf`);
     } catch (e: any) {
       setErr(e?.message || "Report failed");
     } finally {
       setBusy(false);
     }
   }
+
+  const selectedEvidence = useMemo(
+    () => evidence.find((e) => e.id === selectedEvidenceId) || evidence[0] || null,
+    [evidence, selectedEvidenceId],
+  );
+  const analysis = selectedEvidence?.analysis_json;
+
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-blue-50">
@@ -220,10 +197,7 @@ export default function CasePage() {
             <Card>
               <CardHeader>
                 <CardTitle>{caze ? caze.title : "Loading…"}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">Case</Badge>
+@@ -227,114 +203,176 @@ export default function CasePage() {
                   {caze?.status ? <Badge>{caze.status}</Badge> : null}
                   {caze?.created_at ? (
                     <span className="text-xs text-slate-500">
@@ -249,7 +223,20 @@ export default function CasePage() {
                     </div>
                   ) : (
                     evidence.map((e) => (
-                      <div key={e.id} className="rounded-lg border border-slate-200 p-3">
+                      <div
+                        key={e.id}
+                        className={`rounded-lg border p-3 ${
+                          selectedEvidence?.id === e.id
+                            ? "border-blue-400 bg-blue-50/40"
+                            : "border-slate-200"
+                        }`}
+                        onClick={() => setSelectedEvidenceId(e.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter") setSelectedEvidenceId(e.id);
+                        }}
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <div className="text-sm font-medium text-slate-900">
@@ -284,9 +271,36 @@ export default function CasePage() {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Upload</CardTitle>
+                <CardTitle>Quick Scan</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
+                <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="text-xs uppercase text-slate-500">Latest scan</div>
+                  {analysis ? (
+                    <div className="mt-2 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-slate-900">
+                          Trust score
+                        </div>
+                        <Badge>{analysis.trust_score ?? "—"}</Badge>
+                      </div>
+                      <div className="text-xs text-slate-600">
+                        {analysis.one_line_rationale || "No rationale available yet."}
+                      </div>
+                      {analysis.top_reasons?.length ? (
+                        <ul className="list-disc space-y-1 pl-4 text-xs text-slate-600">
+                          {analysis.top_reasons.slice(0, 3).map((reason: string) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs text-slate-500">
+                      Upload evidence to generate a quick scan.
+                    </div>
+                  )}
+                </div>
                 <div className="space-y-1">
                   <label className="text-sm text-slate-700">Select file (image or video)</label>
                   <Input
@@ -301,18 +315,38 @@ export default function CasePage() {
                     onClick={uploadAndAnalyze}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
-                    {busy ? "Working…" : "Add to case + Analyze"}
+                    {busy ? "Working…" : "Quick Scan + Add to case"}
                   </Button>
-
-                  <Button disabled={busy} onClick={generateReport} variant="outline">
-                    Generate Report
+                  <Button disabled={busy || !selectedEvidence} onClick={generateEvidenceReport} variant="outline">
+                    Create Evidence PDF
                   </Button>
                 </div>
+                {analysis?.forensics?.type === "image" ? (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-slate-700">ELA heatmap</div>
+                    <img
+                      src={`/cases/${caseId}/evidence/${selectedEvidence?.id}/artifact?kind=heatmap`}
+                      alt="ELA heatmap"
+                      className="w-full rounded-md border border-slate-200"
+                    />
+                  </div>
+                ) : null}
 
-                <p className="text-xs text-slate-500">
-                  Note: Your current backend returns MARKDOWN for <code>/report</code>. If you
-                  want a real PDF, backend must return <code>application/pdf</code>.
-                </p>
+                {analysis?.forensics?.type === "video" && analysis?.forensics?.results?.flagged_frames?.length ? (
+                  <div className="space-y-2">
+                    <div className="text-xs font-semibold text-slate-700">Flagged frames</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {analysis.forensics.results.flagged_frames.slice(0, 3).map((frame: any) => (
+                        <img
+                          key={frame.index}
+                          src={`/cases/${caseId}/evidence/${selectedEvidence?.id}/artifact?kind=frame&index=${frame.index}`}
+                          alt={`Frame ${frame.index}`}
+                          className="rounded-md border border-slate-200"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
 
@@ -338,18 +372,3 @@ export default function CasePage() {
                             {ev.actor || "user"}
                           </div>
                         </div>
-                        <div className="text-xs text-slate-500">
-                          {ev.created_at ? new Date(ev.created_at).toLocaleString() : ""}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
-}

@@ -217,16 +217,28 @@ def metadata_completeness(meta: dict) -> dict:
                 return v
         return None
 
+    def _get_any(keys):
+        for k in keys:
+            v = meta.get(k)
+            if v not in (None, "", "Unknown", "unknown"):
+                return v
+        return None
+
+
     # Camera/device
-    make = _get(exif, "Make", "make")
-    model = _get(exif, "Model", "model")
+    make = _get(exif, "Make", "make") or _get_any(["EXIF:Make", "Make"])
+    model = _get(exif, "Model", "model") or _get_any(["EXIF:Model", "Model"])
 
     # Time
-    dt = _get(exif, "DateTimeOriginal", "CreateDate", "ModifyDate") or _get(xmp, "CreateDate", "ModifyDate", "DateCreated")
+    dt = (
+        _get(exif, "DateTimeOriginal", "CreateDate", "ModifyDate")
+        or _get(xmp, "CreateDate", "ModifyDate", "DateCreated")
+        or _get_any(["EXIF:DateTimeOriginal", "EXIF:CreateDate", "EXIF:ModifyDate", "XMP:CreateDate", "XMP:ModifyDate"])
+    )
 
     # Location
-    lat = _get(exif, "GPSLatitude", "gpsLatitude")
-    lon = _get(exif, "GPSLongitude", "gpsLongitude")
+    lat = _get(exif, "GPSLatitude", "gpsLatitude") or _get_any(["EXIF:GPSLatitude", "GPSLatitude"])
+    lon = _get(exif, "GPSLongitude", "gpsLongitude") or _get_any(["EXIF:GPSLongitude", "GPSLongitude"])
 
     checks = {
         "camera_make_model_present": bool(make or model),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import secrets
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 import tempfile
@@ -9,7 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr
-from backend import db, engine, config
+from backend import db, config
+from backend.pipeline import analyze_media_file
+from backend.forensics import ARTIFACT_DIR
 from backend.utils import sha256_file
 import jwt
 from fastapi.exceptions import RequestValidationError
@@ -76,22 +79,6 @@ def require_admin(request: Request) -> None:
     got = request.headers.get(ADMIN_HEADER, "")
     if not expected or got != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    
-
-def get_user_id_from_token(creds: HTTPAuthorizationCredentials | None) -> str:
-    if not creds or not creds.credentials:
-        raise HTTPException(status_code=401, detail="Missing token")
-
-    try:
-        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALG])
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return str(user_id)
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 class EnableByEmail(BaseModel):
@@ -338,7 +325,7 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
 # This file focuses on fixing deploy + admin + temp password workflow.
 
 @app.post("/analyze")
-async def analyze(file: UploadFile = File(...)):
+async def analyze(request: Request, file: UploadFile = File(...), pool=Depends(get_pool)):
     # Save upload to a temp file (engine functions expect a filesystem path)
     suffix = ""
     if file.filename:
@@ -346,54 +333,46 @@ async def analyze(file: UploadFile = File(...)):
         suffix = ext or ""
 
     tmp_path = None
+    start = time.monotonic()
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp_path = tmp.name
             content = await file.read()
             tmp.write(content)
 
-        size_bytes = os.path.getsize(tmp_path)
-        sha256 = sha256_file(tmp_path)
+        analysis = analyze_media_file(tmp_path, file.filename or "upload")
 
-        media_type = engine.detect_media_type(tmp_path)
-        metadata = engine.extract_exiftool(tmp_path)
-        ffprobe = engine.extract_ffprobe(tmp_path) if media_type.startswith("video/") else {}
-        c2pa = engine.extract_c2pa(tmp_path)
-
-        ai_disclosure = engine.ai_disclosure_from_metadata(metadata)
-        transformations = engine.transformation_hints(metadata, ffprobe)
-        provenance_state, summary = engine.classify_provenance(c2pa, metadata)
-
-        findings = []
-
-        # Helpful “findings” based on what the engine reports
-        if isinstance(c2pa, dict) and c2pa.get("_status") == "missing_c2patool":
-            findings.append({
-                "title": "C2PA verifier not available on server",
-                "severity": "LOW",
-                "detail": "The API server does not have c2patool installed, so cryptographic provenance cannot be verified."
-            })
-
-        if isinstance(metadata, dict) and metadata.get("_status") == "missing_exiftool":
-            findings.append({
-                "title": "EXIF extractor not available on server",
-                "severity": "LOW",
-                "detail": "The API server does not have exiftool installed, so metadata signals may be incomplete."
-            })
+        latency_ms = int((time.monotonic() - start) * 1000)
+        await db.insert_event(
+            pool,
+            case_id=None,
+            evidence_id=None,
+            event_type="SCAN_CREATED",
+            actor="public",
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            details={
+                "latency_ms": latency_ms,
+                "trust_score": analysis.get("trust_score"),
+                "provenance_state": analysis.get("provenance_state"),
+            },
+        )
 
         return {
-            "filename": file.filename or "upload",
-            "media_type": media_type,
-            "sha256": sha256,
-            "bytes": size_bytes,
-            "provenance_state": provenance_state,
-            "summary": summary,
-            "ai_disclosure": ai_disclosure,
-            "transformations": transformations,
-            "findings": findings,
-            "c2pa": c2pa,
-            "metadata": metadata,
-            "ffprobe": ffprobe,
+            "trust_score": analysis.get("trust_score"),
+            "label": analysis.get("label"),
+            "one_line_rationale": analysis.get("one_line_rationale"),
+            "top_reasons": analysis.get("top_reasons"),
+            "provenance": {
+                "state": analysis.get("provenance_state"),
+                "summary": analysis.get("summary"),
+                "flags": analysis.get("provenance_flags"),
+                "c2pa_summary": analysis.get("c2pa_summary"),
+            },
+            "forensics": analysis.get("forensics"),
+            "timeline": analysis.get("derived_timeline"),
+            "signals": analysis.get("signals"),
+            "raw_extracts": analysis.get("raw_extracts"),
         }
 
     finally:
@@ -491,14 +470,6 @@ async def auth_change_password(
     await db.set_user_password(pool, str(user["id"]), req.new_password)
     return {"ok": True}
 
-@app.get("/cases")
-async def list_my_cases(
-    pool=Depends(get_pool),
-    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
-):
-    user_id = get_user_id_from_token(creds)
-    return await db.list_cases(pool, user_id=user_id, limit=200)
-
 
 @app.get("/cases")
 async def my_cases(
@@ -541,21 +512,7 @@ async def list_case_evidence(
     case_id: str,
     pool=Depends(get_pool),
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
-):
-    # Ensure the user owns this case
-    user = await require_user(pool, creds)
 
-    c = await db.get_case(pool, case_id=case_id, user_id=str(user["id"]))
-    if not c:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    return await db.list_case_evidence(pool, case_id=case_id)
-
-@app.get("/cases/{case_id}/evidence")
-async def get_case_evidence(
-    case_id: str,
-    pool=Depends(get_pool),
-    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
 ):
     user = await require_user(pool, creds)
 
@@ -569,6 +526,7 @@ async def get_case_evidence(
 async def upload_case_evidence(
     case_id: str,
     file: UploadFile = File(...),
+    request: Request,
     pool=Depends(get_pool),
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
 ):
@@ -585,32 +543,20 @@ async def upload_case_evidence(
         suffix = ext or ""
 
     tmp_path = None
+    start = time.monotonic()
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp_path = tmp.name
             content = await file.read()
             tmp.write(content)
 
-        bytes_ = os.path.getsize(tmp_path)
-        sha256 = sha256_file(tmp_path)
-
-        media_type = engine.detect_media_type(tmp_path)
-        metadata = engine.extract_exiftool(tmp_path)
-        ffprobe = engine.extract_ffprobe(tmp_path) if media_type.startswith("video/") else {}
-        c2pa = engine.extract_c2pa(tmp_path)
-
-        provenance_state, summary = engine.classify_provenance(c2pa, metadata)
-
-        analysis_json = {
-            "media_type": media_type,
-            "sha256": sha256,
-            "bytes": bytes_,
-            "provenance_state": provenance_state,
-            "summary": summary,
-            "c2pa": c2pa,
-            "metadata": metadata,
-            "ffprobe": ffprobe,
-        }
+        
+        analysis_json = analyze_media_file(tmp_path, file.filename or "upload")
+        bytes_ = analysis_json.get("bytes") or os.path.getsize(tmp_path)
+        sha256 = analysis_json.get("sha256") or sha256_file(tmp_path)
+        media_type = analysis_json.get("media_type") or "unknown"
+        provenance_state = analysis_json.get("provenance_state") or "UNKNOWN"
+        summary = analysis_json.get("one_line_rationale") or analysis_json.get("summary") or ""
 
         row = await db.insert_evidence(
             pool,
@@ -624,6 +570,22 @@ async def upload_case_evidence(
             analysis_json=analysis_json,
         )
 
+        latency_ms = int((time.monotonic() - start) * 1000)
+        await db.insert_event(
+            pool,
+            case_id=case_id,
+            evidence_id=str(row["id"]),
+            event_type="SCAN_CREATED",
+            actor=str(user["id"]),
+            ip=request.client.host if request and request.client else None,
+            user_agent=request.headers.get("user-agent") if request else None,
+            details={
+                "latency_ms": latency_ms,
+                "trust_score": analysis_json.get("trust_score"),
+                "provenance_state": provenance_state,
+            },
+        )
+
         return row
 
     finally:
@@ -632,6 +594,23 @@ async def upload_case_evidence(
                 os.remove(tmp_path)
             except Exception:
                 pass
+
+
+@app.get("/cases/{case_id}/evidence/{evidence_id}")
+async def get_evidence(
+    case_id: str,
+    evidence_id: str,
+    pool=Depends(get_pool),
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+):
+    user = await require_user(pool, creds)
+    c = await db.get_case(pool, case_id=case_id, user_id=str(user["id"]))
+    if not c:
+        raise HTTPException(status_code=404, detail="Case not found")
+    evidence = await db.get_case_evidence(pool, case_id=case_id, evidence_id=evidence_id)
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+    return evidence
             
 @app.get("/cases/{case_id}/events")
 async def get_case_events(
@@ -647,6 +626,161 @@ async def get_case_events(
         raise HTTPException(status_code=404, detail="Case not found")
 
     return await db.list_case_events(pool, case_id=case_id, limit=limit)
+
+
+@app.get("/cases/{case_id}/evidence/{evidence_id}/artifact")
+async def get_evidence_artifact(
+    case_id: str,
+    evidence_id: str,
+    kind: str,
+    index: int | None = None,
+    pool=Depends(get_pool),
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+):
+    user = await require_user(pool, creds)
+    c = await db.get_case(pool, case_id=case_id, user_id=str(user["id"]))
+    if not c:
+        raise HTTPException(status_code=404, detail="Case not found")
+    evidence = await db.get_case_evidence(pool, case_id=case_id, evidence_id=evidence_id)
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    analysis = evidence.get("analysis_json") or {}
+    forensics = analysis.get("forensics") or {}
+    path = None
+    if kind == "heatmap":
+        path = ((forensics.get("results") or {}).get("heatmap_path"))
+    elif kind == "frame" and index is not None:
+        frames = (forensics.get("results") or {}).get("frame_thumbnails") or []
+        if 0 <= index < len(frames):
+            path = frames[index]
+    elif kind == "frame_heatmap" and index is not None:
+        markers = (forensics.get("results") or {}).get("timeline_markers") or []
+        if 0 <= index < len(markers):
+            path = markers[index].get("heatmap_path")
+
+    if not path:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    safe_root = os.path.abspath(ARTIFACT_DIR)
+    abs_path = os.path.abspath(path)
+    if os.path.commonpath([safe_root, abs_path]) != safe_root:
+        raise HTTPException(status_code=400, detail="Invalid artifact path")
+
+    return FileResponse(abs_path)
+
+
+@app.post("/cases/{case_id}/evidence/{evidence_id}/report")
+async def generate_evidence_report(
+    case_id: str,
+    evidence_id: str,
+    request: Request,
+    pool=Depends(get_pool),
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+):
+    start = time.monotonic()
+    user = await require_user(pool, creds)
+    c = await db.get_case(pool, case_id=case_id, user_id=str(user["id"]))
+    if not c:
+        raise HTTPException(status_code=404, detail="Case not found")
+    evidence = await db.get_case_evidence(pool, case_id=case_id, evidence_id=evidence_id)
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    events = await db.list_evidence_events(pool, evidence_id, limit=30)
+    analysis = evidence.get("analysis_json") or {}
+    analysis["report_integrity"] = {
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+    }
+    analysis["chain_of_custody"] = events
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        pdf_path = tmp.name
+
+    build_pdf_report(analysis, pdf_path)
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    await db.insert_event(
+        pool,
+        case_id=case_id,
+        evidence_id=evidence_id,
+        event_type="PDF_EXPORTED",
+        actor=str(user["id"]),
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        details={"latency_ms": latency_ms},
+    )
+
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=f"TruthSig-evidence-{evidence_id}.pdf",
+    )
+
+
+@app.post("/cases/{case_id}/evidence/{evidence_id}/share")
+async def share_evidence(
+    case_id: str,
+    evidence_id: str,
+    request: Request,
+    pool=Depends(get_pool),
+    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
+):
+    user = await require_user(pool, creds)
+    c = await db.get_case(pool, case_id=case_id, user_id=str(user["id"]))
+    if not c:
+        raise HTTPException(status_code=404, detail="Case not found")
+    evidence = await db.get_case_evidence(pool, case_id=case_id, evidence_id=evidence_id)
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    token = secrets.token_urlsafe(16)
+    link = await db.create_evidence_public_link(pool, evidence_id=evidence_id, token=token)
+    public_url = str(request.base_url) + f"public/evidence/{token}"
+    return {"token": link["token"], "public_url": public_url}
+
+
+@app.get("/public/evidence/{token}")
+async def public_evidence(token: str, pool=Depends(get_pool)):
+    link = await db.get_public_link(pool, token)
+    if not link or link.get("revoked_at"):
+        raise HTTPException(status_code=404, detail="Link not found")
+
+    evidence = await db.get_evidence_by_id(pool, evidence_id=str(link["evidence_id"]))
+    if not evidence:
+        raise HTTPException(status_code=404, detail="Evidence not found")
+
+    analysis = evidence.get("analysis_json") or {}
+    public_forensics = analysis.get("forensics") or {}
+    if isinstance(public_forensics, dict):
+        public_forensics = dict(public_forensics)
+        results = public_forensics.get("results")
+        if isinstance(results, dict):
+            sanitized = {
+                k: v
+                for k, v in results.items()
+                if k not in {"heatmap_path", "thumbnail_path", "frame_thumbnails", "flagged_frames", "timeline_markers"}
+            }
+            public_forensics["results"] = sanitized
+
+    return {
+        "evidence_id": str(evidence.get("id")),
+        "filename": evidence.get("filename"),
+        "created_at": evidence.get("created_at"),
+        "trust_score": analysis.get("trust_score"),
+        "label": analysis.get("label"),
+        "one_line_rationale": analysis.get("one_line_rationale"),
+        "top_reasons": analysis.get("top_reasons"),
+        "provenance": {
+            "state": analysis.get("provenance_state"),
+            "summary": analysis.get("summary"),
+            "flags": analysis.get("provenance_flags"),
+            "c2pa_summary": analysis.get("c2pa_summary"),
+        },
+        "forensics": public_forensics,
+        "timeline": analysis.get("derived_timeline"),
+        "signals": analysis.get("signals"),
+    }
 
 @app.post("/report")
 async def generate_report(
@@ -673,8 +807,7 @@ async def generate_report(
         "c2pa": {},
         "derived_timeline": {},
         "metadata_consistency": {},
-        "tools": {},
-        "limitations": [],
+@@ -678,26 +810,37 @@ async def generate_report(
         "what_would_make_verifiable": [],
         "decision_context": {
             "purpose": "Legal and forensic documentation of digital evidence."
@@ -682,6 +815,7 @@ async def generate_report(
         "report_integrity": {
             "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
         },
+        )
     }
 
     # Attach evidence
@@ -701,3 +835,15 @@ async def generate_report(
         filename=f"TruthSig-report-{req.case_id}.pdf",
     
     )
+    
+
+
+@app.get("/admin/metrics/summary")
+async def admin_metrics_summary(
+    request: Request,
+    days: int = 7,
+    pool=Depends(get_pool),
+):
+    require_admin(request)
+    days = max(1, min(days, 90))
+    return await db.metrics_summary(pool, days=days)

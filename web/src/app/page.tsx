@@ -111,7 +111,7 @@ export default function HomePage() {
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div className="leading-tight">
-              <div className="text-sm font-semibold text-slate-900">TruthStamp</div>
+              <div className="text-sm font-semibold text-slate-900">TruthSig</div>
               <div className="text-[11px] text-slate-500">Provenance • Evidence • Trust</div>
             </div>
           </Link>
@@ -119,7 +119,7 @@ export default function HomePage() {
           <div className="flex items-center gap-2">
             <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs text-slate-600 md:flex">
               <Shield className="h-3.5 w-3.5 text-blue-600" />
-              Trusted by claims + legal teams
+              Trusted by newsrooms + fact-checkers
             </div>
             <Button asChild variant="ghost" className="hidden md:inline-flex text-slate-700">
               <Link href="/register">Request access</Link>
@@ -129,7 +129,7 @@ export default function HomePage() {
             </Button>
             <Button asChild className="bg-blue-600 hover:bg-blue-700">
               <Link href="/app">
-                Case workspace <ArrowRight className="h-4 w-4" />
+                Open workspace <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
           </div>
@@ -141,7 +141,7 @@ export default function HomePage() {
           <div className="space-y-6">
             <Badge className="gap-2 rounded-full border border-blue-200/60 bg-blue-50/70 px-4 py-1 text-blue-700">
               <Sparkles className="h-4 w-4" />
-              Evidence-grade provenance for the AI era
+              Evidence-grade provenance for the newsroom era
             </Badge>
 
             <h1 className="text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
@@ -149,8 +149,9 @@ export default function HomePage() {
               <span className="bg-gradient-to-r from-blue-700 to-sky-600 bg-clip-text text-transparent">cryptographic proof</span>.
             </h1>
             <p className="max-w-xl text-base text-slate-600">
-              TruthStamp turns media into admissible evidence. Capture provenance signals, detect edits, and generate a court-ready
-              report in minutes. Built for insurance, legal, and investigative teams that can’t afford uncertainty.
+              TruthSig turns media into newsroom-ready evidence. Capture provenance signals, detect edits, and generate a
+              publish-ready report in minutes. Built for journalists, fact-checkers, and investigations teams that can’t afford
+              uncertainty.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -187,9 +188,9 @@ export default function HomePage() {
 
             <div className="grid gap-4 rounded-2xl border border-slate-200 bg-white/70 p-5 sm:grid-cols-3">
               {[
-                { label: "Claims reviewed", value: "1,200+" },
-                { label: "Evidence packets", value: "320+" },
-                { label: "Avg. review time", value: "↓ 42%" },
+                { label: "Scans run", value: "1,200+" },
+                { label: "Evidence PDFs", value: "320+" },
+                { label: "Avg. verification time", value: "↓ 42%" },
               ].map((stat) => (
                 <div key={stat.label}>
                   <div className="text-sm text-slate-500">{stat.label}</div>
@@ -262,7 +263,7 @@ export default function HomePage() {
 
                     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
                       <div>
-                        <div className="text-sm font-medium text-slate-900">Need a court-ready PDF?</div>
+                        <div className="text-sm font-medium text-slate-900">Need detailed PDF report?</div>
                         <div className="text-xs text-slate-600">Log in to generate a signed report and store it in a case.</div>
                       </div>
                       <div className="flex gap-2">
@@ -289,8 +290,8 @@ export default function HomePage() {
           {[
             {
               icon: Gauge,
-              title: "Evidence workspace",
-              desc: "Create cases, attach media, track chain-of-custody events, and keep everything organized.",
+              title: "Newsroom workspace",
+              desc: "Create cases, attach media, track chain-of-custody events, and keep investigations organized.",
             },
             {
               icon: FileSearch,
@@ -300,7 +301,7 @@ export default function HomePage() {
             {
               icon: Globe,
               title: "API-ready",
-              desc: "Designed to become an API: seal provenance at capture-time inside other apps.",
+              desc: "Designed to become an API: seal provenance at capture-time inside other apps and CMS tools.",
             },
           ].map((x) => (
             <div key={x.title} className="rounded-2xl border border-slate-200 bg-white/70 p-6">
@@ -319,7 +320,7 @@ export default function HomePage() {
             <h2 className="text-2xl font-semibold text-slate-900">Every artifact, every action, logged.</h2>
             <p className="text-sm text-slate-600">
               Generate defensible evidence packets with a verifiable trail of who uploaded, who reviewed, and what changed. Built
-              for insurance investigators, claims teams, and legal counsel.
+              for newsrooms, investigations, and fact-checking teams.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               {[
@@ -339,8 +340,8 @@ export default function HomePage() {
             <div className="text-xs uppercase tracking-[0.2em] text-blue-200">Evidence packet</div>
             <div className="mt-3 space-y-4">
               {[
-                { label: "Claim ID", value: "TS-1084" },
-                { label: "Uploaded by", value: "Avery M., Adjuster" },
+                { label: "Story ID", value: "TS-1084" },
+                { label: "Uploaded by", value: "Avery M., Reporter" },
                 { label: "Integrity score", value: "Verified" },
                 { label: "Timeline", value: "4 events • 18 mins" },
               ].map((row) => (
@@ -360,19 +361,19 @@ export default function HomePage() {
           <div className="rounded-3xl border border-slate-200 bg-white/70 p-8">
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-600">
               <Users className="h-4 w-4" />
-              Teams who trust TruthStamp
+              Teams who trust TruthSig
             </div>
             <div className="mt-4 space-y-4">
               {[
                 {
                   quote:
-                    "We cut dispute resolution time in half by attaching verified evidence packets to every questionable claim.",
-                  name: "Head of SIU, National Carrier",
+                    "We cut verification time in half by attaching evidence packets to every high-risk submission.",
+                  name: "Investigations Editor, National Newsroom",
                 },
                 {
                   quote:
-                    "TruthStamp gave our investigators a reliable, court-ready chain-of-custody in minutes instead of days.",
-                  name: "Claims Director, Regional TPA",
+                    "TruthSig gave our fact-checkers a reliable chain-of-custody in minutes instead of days.",
+                  name: "Fact-Checking Lead, Regional Desk",
                 },
               ].map((item) => (
                 <div key={item.name} className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -388,7 +389,7 @@ export default function HomePage() {
               {[
                 {
                   title: "Capture evidence",
-                  copy: "Upload media or capture in the field with metadata and device attestation.",
+                  copy: "Upload media from the field with metadata and device attestation.",
                 },
                 {
                   title: "Verify provenance",
@@ -415,7 +416,7 @@ export default function HomePage() {
 
         <footer className="mt-16 border-t border-slate-200 py-10 text-sm text-slate-600">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>© {new Date().getFullYear()} TruthStamp</div>
+            <div>© {new Date().getFullYear()} TruthSig</div>
             <div className="flex gap-4">
               <Link href="/login" className="hover:text-slate-900">
                 Log in
@@ -424,7 +425,7 @@ export default function HomePage() {
                 Request access
               </Link>
               <Link href="/app" className="hover:text-slate-900">
-                Workspace
+                Workpsace
               </Link>
             </div>
           </div>

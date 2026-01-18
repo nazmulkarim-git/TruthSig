@@ -100,7 +100,7 @@ export default function ProfileClient() {
       <header className="border-b border-slate-200 bg-white/70 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
           <Link href="/app" className="text-sm font-semibold text-slate-900">
-            TruthStamp
+            TruthSig
           </Link>
           <div className="flex items-center gap-2">
             <Button variant="ghost" asChild className="text-slate-700">
