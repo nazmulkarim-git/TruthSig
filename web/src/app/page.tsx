@@ -80,7 +80,28 @@ export default function HomePage() {
         const t = await res.text().catch(() => "");
         throw new Error(t || "Analyze failed");
       }
-      const data = (await res.json()) as AnalysisResult;
+      const raw = await res.json();
+
+      // Map backend response -> UI contract (AnalysisResult)
+      const data: AnalysisResult = {
+        filename: raw.filename ?? file.name,
+        media_type: raw.media_type ?? raw.mime_type ?? "",
+        sha256: raw.sha256 ?? "",
+        bytes: raw.bytes ?? raw.size ?? file.size,
+
+        // support nested provenance shape too
+        provenance_state: raw.provenance_state ?? raw.provenance?.state ?? "",
+        summary: raw.summary ?? raw.provenance?.summary ?? raw.one_line_rationale ?? "",
+
+        // optional sections: accept either flat or nested keys
+        ai_disclosure: raw.ai_disclosure ?? raw.provenance?.ai_disclosure ?? raw.ai ?? undefined,
+        transformations: raw.transformations ?? raw.provenance?.transformations ?? undefined,
+        findings: raw.findings ?? raw.provenance?.findings ?? raw.flags ?? undefined,
+        c2pa: raw.c2pa ?? raw.c2pa_summary ?? raw.provenance?.c2pa ?? raw.provenance?.c2pa_summary ?? undefined,
+        metadata: raw.metadata ?? raw.provenance?.metadata ?? undefined,
+        ffprobe: raw.ffprobe ?? raw.media?.ffprobe ?? raw.provenance?.ffprobe ?? undefined,
+      };
+
       setResult(data);
     } catch (e: any) {
       setErr(e?.message || "Failed");

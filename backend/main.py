@@ -373,6 +373,15 @@ async def analyze(request: Request, file: UploadFile = File(...), pool=Depends(g
         )
 
         return {
+            # ✅ fields the Quick Scan UI expects (flat)
+            "filename": analysis.get("filename"),
+            "media_type": analysis.get("media_type"),
+            "sha256": analysis.get("sha256"),
+            "bytes": analysis.get("bytes"),
+            "provenance_state": analysis.get("provenance_state"),
+            "summary": analysis.get("summary"),
+
+            # keep your newer API schema too (so nothing else breaks)
             "trust_score": analysis.get("trust_score"),
             "label": analysis.get("label"),
             "one_line_rationale": analysis.get("one_line_rationale"),
