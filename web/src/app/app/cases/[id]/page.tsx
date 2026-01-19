@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
 import { apiFetch, apiJson } from "@/lib/api";
+import { useEffect, useState } from "react";
 
 type Case = {
   id: string;
@@ -69,6 +70,7 @@ export default function CasePage() {
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [elaHeatmapUrl, setElaHeatmapUrl] = useState<string | null>(null);
 
   async function refreshAll() {
     if (!caseId) return;
@@ -103,6 +105,39 @@ export default function CasePage() {
       setSelectedEvidenceId(evidence[0].id);
     }
   }, [evidence, selectedEvidenceId]);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+
+    async function loadHeatmap() {
+      setElaHeatmapUrl(null);
+
+      if (analysis?.forensics?.type !== "image") return;
+      if (!caseId || !selectedEvidence?.id) return;
+
+      const res = await apiFetch(
+        `/cases/${caseId}/evidence/${selectedEvidence.id}/artifact?kind=heatmap`
+      );
+
+      if (!res.ok) {
+        // Optional: console log for debugging
+        // console.error("Heatmap fetch failed:", res.status);
+        return;
+      }
+
+      const blob = await res.blob();
+      objectUrl = URL.createObjectURL(blob);
+      if (active) setElaHeatmapUrl(objectUrl);
+    }
+
+    loadHeatmap();
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [caseId, selectedEvidence?.id, analysis?.forensics?.type]);
 
   async function uploadAndAnalyze() {
     if (!caseId) {
@@ -354,11 +389,15 @@ export default function CasePage() {
                     <div className="text-xs font-semibold text-slate-700">
                       ELA heatmap
                     </div>
-                    <img
-                      src={`/cases/${caseId}/evidence/${selectedEvidence?.id}/artifact?kind=heatmap`}
-                      alt="ELA heatmap"
-                      className="w-full rounded-md border border-slate-200"
-                    />
+                    {elaHeatmapUrl ? (
+                      <img
+                        src={elaHeatmapUrl}
+                        alt="ELA heatmap"
+                        className="w-full rounded-md border border-slate-200"
+                      />
+                    ) : (
+                      <div className="text-xs text-slate-500">Loading ELA heatmap…</div>
+                    )}
                   </div>
                 ) : null}
 
