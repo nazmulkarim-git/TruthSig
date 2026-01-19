@@ -661,41 +661,70 @@ async def get_evidence_artifact(
     creds: HTTPAuthorizationCredentials | None = Depends(bearer),
 ):
     user = await require_user(pool, creds)
+
+    # Basic validation to avoid ambiguous 400/404s
+    if kind not in {"heatmap", "frame", "frame_heatmap"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported artifact kind: {kind}")
+
     c = await db.get_case(pool, case_id=case_id, user_id=str(user["id"]))
     if not c:
         raise HTTPException(status_code=404, detail="Case not found")
+
     evidence = await db.get_case_evidence(pool, case_id=case_id, evidence_id=evidence_id)
     if not evidence:
         raise HTTPException(status_code=404, detail="Evidence not found")
 
     analysis = _ensure_dict(evidence.get("analysis_json"))
-    forensics = analysis.get("forensics") or {}
-    path = None
+    forensics = analysis.get("forensics")
+
+    # No forensics section at all (analysis not run / not persisted)
+    if not forensics:
+        raise HTTPException(status_code=404, detail="No forensics available for this evidence")
+
+    # Forensics ran but failed (don’t pretend artifacts exist)
+    if forensics.get("status") != "OK":
+        raise HTTPException(
+            status_code=404,
+            detail=forensics.get("explanation", "Forensics did not produce artifacts"),
+        )
+
+    results = forensics.get("results") or {}
+
+    path: str | None = None
     if kind == "heatmap":
-        path = ((forensics.get("results") or {}).get("heatmap_path"))
-    elif kind == "frame" and index is not None:
-        frames = (forensics.get("results") or {}).get("frame_thumbnails") or []
+        path = results.get("heatmap_path")
+
+    elif kind == "frame":
+        if index is None:
+            raise HTTPException(status_code=400, detail="index is required for kind=frame")
+        frames = results.get("frame_thumbnails") or []
         if 0 <= index < len(frames):
             path = frames[index]
-    elif kind == "frame_heatmap" and index is not None:
-        markers = (forensics.get("results") or {}).get("timeline_markers") or []
+
+    elif kind == "frame_heatmap":
+        if index is None:
+            raise HTTPException(status_code=400, detail="index is required for kind=frame_heatmap")
+        markers = results.get("timeline_markers") or []
         if 0 <= index < len(markers):
-            path = markers[index].get("heatmap_path")
+            path = (markers[index] or {}).get("heatmap_path")
 
     if not path:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Artifact '{kind}' not available for this evidence",
+        )
 
     safe_root = os.path.abspath(ARTIFACT_DIR)
     abs_path = os.path.abspath(path)
+
+    # Prevent path traversal / serving arbitrary files
     if os.path.commonpath([safe_root, abs_path]) != safe_root:
         raise HTTPException(status_code=400, detail="Invalid artifact path")
 
     if not os.path.exists(abs_path):
-        raise HTTPException(
-            status_code=404,
-            detail="Artifact not available (file missing)"
-        )
+        raise HTTPException(status_code=404, detail="Artifact not available (file missing)")
 
+    # You can optionally branch media_type based on file extension if needed.
     return FileResponse(abs_path, media_type="image/png")
 
 
