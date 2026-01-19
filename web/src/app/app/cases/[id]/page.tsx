@@ -175,6 +175,8 @@ export default function CasePage() {
     [evidence, selectedEvidenceId],
   );
 
+  const analysis = selectedEvidence?.analysis_json;
+
   useEffect(() => {
     let active = true;
     let objectUrl: string | null = null;
@@ -208,7 +210,6 @@ export default function CasePage() {
     };
   }, [caseId, selectedEvidence?.id, analysis?.forensics?.type]);
 
-  const analysis = selectedEvidence?.analysis_json;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-blue-50">
