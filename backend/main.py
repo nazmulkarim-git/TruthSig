@@ -690,7 +690,13 @@ async def get_evidence_artifact(
     if os.path.commonpath([safe_root, abs_path]) != safe_root:
         raise HTTPException(status_code=400, detail="Invalid artifact path")
 
-    return FileResponse(abs_path)
+    if not os.path.exists(abs_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Artifact not available (file missing)"
+        )
+
+    return FileResponse(abs_path, media_type="image/png")
 
 
 @app.post("/cases/{case_id}/evidence/{evidence_id}/report")
@@ -867,3 +873,9 @@ async def admin_metrics_summary(
     require_admin(request)
     days = max(1, min(days, 90))
     return await db.metrics_summary(pool, days=days)
+
+if forensics.get("status") == "ERROR":
+    raise HTTPException(
+        status_code=404,
+        detail=forensics.get("explanation", "Forensics failed")
+    )

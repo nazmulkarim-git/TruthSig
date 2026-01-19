@@ -10,7 +10,10 @@ from PIL import Image, ImageChops, ImageStat
 
 from backend.utils import run_cmd, which
 
-ARTIFACT_DIR = os.getenv("TRUTHSIG_ARTIFACT_DIR", "/tmp/truthsig_artifacts")
+ARTIFACT_DIR = os.getenv(
+    "TRUTHSIG_ARTIFACT_DIR",
+    "/data/truthsig_artifacts"
+)
 
 
 def _ensure_dir(path: str) -> str:
@@ -27,7 +30,10 @@ def _safe_mean(stat: ImageStat.Stat) -> float:
 def image_ela(path: str, output_dir: Optional[str] = None) -> Dict[str, Any]:
     try:
         _ensure_dir(ARTIFACT_DIR)
-        out_dir = _ensure_dir(output_dir or tempfile.mkdtemp(prefix="ela_", dir=ARTIFACT_DIR))
+        base = os.path.splitext(os.path.basename(path))[0]
+        out_dir = _ensure_dir(
+            output_dir or os.path.join(ARTIFACT_DIR, f"ela_{base}")
+        )
         with Image.open(path) as img:
             img = img.convert("RGB")
             buffer = io.BytesIO()
@@ -39,6 +45,9 @@ def image_ela(path: str, output_dir: Optional[str] = None) -> Dict[str, Any]:
                 diff = diff.point(lambda x: min(255, x * 10))
                 heatmap_path = os.path.join(out_dir, "ela_heatmap.png")
                 diff.save(heatmap_path, "PNG")
+
+                if not os.path.exists(heatmap_path):
+                    raise RuntimeError("ELA heatmap was not written to disk")
 
                 stat = ImageStat.Stat(diff)
                 mean_diff = _safe_mean(stat)
@@ -107,7 +116,10 @@ def video_forensics(
         }
 
     _ensure_dir(ARTIFACT_DIR)
-    out_dir = _ensure_dir(tempfile.mkdtemp(prefix="video_frames_", dir=ARTIFACT_DIR))
+    base = os.path.splitext(os.path.basename(path))[0]
+    out_dir = _ensure_dir(
+        output_dir or os.path.join(ARTIFACT_DIR, f"ela_{base}")
+    )
     step = duration / (frame_count + 1)
     timestamps = [step * (i + 1) for i in range(frame_count)]
 
