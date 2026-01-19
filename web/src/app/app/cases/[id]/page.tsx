@@ -103,38 +103,6 @@ export default function CasePage() {
     }
   }, [evidence, selectedEvidenceId]);
 
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | null = null;
-
-    async function loadHeatmap() {
-      setElaHeatmapUrl(null);
-
-      if (analysis?.forensics?.type !== "image") return;
-      if (!caseId || !selectedEvidence?.id) return;
-
-      const res = await apiFetch(
-        `/cases/${caseId}/evidence/${selectedEvidence.id}/artifact?kind=heatmap`
-      );
-
-      if (!res.ok) {
-        // Optional: console log for debugging
-        // console.error("Heatmap fetch failed:", res.status);
-        return;
-      }
-
-      const blob = await res.blob();
-      objectUrl = URL.createObjectURL(blob);
-      if (active) setElaHeatmapUrl(objectUrl);
-    }
-
-    loadHeatmap();
-
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [caseId, selectedEvidence?.id, analysis?.forensics?.type]);
 
   async function uploadAndAnalyze() {
     if (!caseId) {
@@ -206,6 +174,39 @@ export default function CasePage() {
     () => evidence.find((e) => e.id === selectedEvidenceId) || evidence[0] || null,
     [evidence, selectedEvidenceId],
   );
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+
+    async function loadHeatmap() {
+      setElaHeatmapUrl(null);
+
+      if (analysis?.forensics?.type !== "image") return;
+      if (!caseId || !selectedEvidence?.id) return;
+
+      const res = await apiFetch(
+        `/cases/${caseId}/evidence/${selectedEvidence.id}/artifact?kind=heatmap`
+      );
+
+      if (!res.ok) {
+        // Optional: console log for debugging
+        // console.error("Heatmap fetch failed:", res.status);
+        return;
+      }
+
+      const blob = await res.blob();
+      objectUrl = URL.createObjectURL(blob);
+      if (active) setElaHeatmapUrl(objectUrl);
+    }
+
+    loadHeatmap();
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [caseId, selectedEvidence?.id, analysis?.forensics?.type]);
 
   const analysis = selectedEvidence?.analysis_json;
 
