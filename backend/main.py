@@ -873,9 +873,3 @@ async def admin_metrics_summary(
     require_admin(request)
     days = max(1, min(days, 90))
     return await db.metrics_summary(pool, days=days)
-
-if forensics.get("status") == "ERROR":
-    raise HTTPException(
-        status_code=404,
-        detail=forensics.get("explanation", "Forensics failed")
-    )
