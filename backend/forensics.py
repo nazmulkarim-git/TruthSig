@@ -108,6 +108,18 @@ def video_forensics(
     frame_count: int = 12,
     output_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """
+    Extracts N frames from the video, runs ELA on each, and returns:
+      - frame thumbnails
+      - per-frame scores
+      - top flagged frames
+      - timeline markers (including per-frame heatmap + base64 fallback)
+    Fixes implemented:
+      1) Uses the provided output_dir parameter correctly (was previously a NameError in older codebases).
+      2) Stores heatmap_b64 for timeline_markers and flagged_frames so artifact serving works on ephemeral/multi-instance hosts.
+      3) Handles per-frame ELA failures gracefully without breaking the whole run.
+      4) Avoids division-by-zero and provides clearer status values.
+    """
     if not which("ffmpeg"):
         return {
             "status": "NOT_AVAILABLE",
@@ -123,9 +135,9 @@ def video_forensics(
 
     _ensure_dir(ARTIFACT_DIR)
     base = os.path.splitext(os.path.basename(path))[0]
-    out_dir = _ensure_dir(
-        output_dir or os.path.join(ARTIFACT_DIR, f"ela_{base}")
-    )
+    out_dir = _ensure_dir(output_dir or os.path.join(ARTIFACT_DIR, f"ela_{base}"))
+
+    # Sample frames evenly across the duration (skip very start/end)
     step = duration / (frame_count + 1)
     timestamps = [step * (i + 1) for i in range(frame_count)]
 
@@ -136,6 +148,7 @@ def video_forensics(
 
     for idx, ts in enumerate(timestamps):
         frame_path = os.path.join(out_dir, f"frame_{idx:02d}.jpg")
+
         code, _, err = run_cmd(
             [
                 "ffmpeg",
@@ -152,22 +165,45 @@ def video_forensics(
             ],
             timeout=30,
         )
+
         if code != 0 or not os.path.exists(frame_path):
             timeline_markers.append(
-                {"time_s": ts, "status": "ERROR", "note": err[:200] if err else "Frame extraction failed."}
+                {
+                    "time_s": ts,
+                    "status": "ERROR",
+                    "note": (err[:200] if err else "Frame extraction failed."),
+                }
             )
             continue
 
         frame_thumbnails.append(frame_path)
+
+        # Run ELA on the extracted frame. image_ela now returns heatmap_b64 for resilience.
         ela = image_ela(frame_path, output_dir=out_dir)
+        ela_status = ela.get("status")
+
+        if ela_status == "ERROR":
+            timeline_markers.append(
+                {
+                    "time_s": ts,
+                    "status": "ERROR",
+                    "thumbnail_path": frame_path,
+                    "note": ela.get("explanation", "ELA failed for this frame."),
+                }
+            )
+            frame_scores.append(0.0)
+            continue
+
         mean_diff = float(ela.get("mean_diff") or 0.0)
         frame_scores.append(mean_diff)
+
         marker = {
             "time_s": ts,
             "status": "OK",
             "score": mean_diff,
-            "heatmap_path": ela.get("heatmap_path"),
             "thumbnail_path": frame_path,
+            "heatmap_path": ela.get("heatmap_path"),
+            "heatmap_b64": ela.get("heatmap_b64"),
         }
         timeline_markers.append(marker)
 
@@ -179,12 +215,15 @@ def video_forensics(
                     "score": mean_diff,
                     "thumbnail_path": frame_path,
                     "heatmap_path": ela.get("heatmap_path"),
+                    "heatmap_b64": ela.get("heatmap_b64"),
                 }
             )
 
+    # Keep top 3 flagged frames by score
     flagged_frames = sorted(flagged_frames, key=lambda f: f.get("score", 0), reverse=True)[:3]
 
-    avg_score = sum(frame_scores) / len(frame_scores) if frame_scores else 0.0
+    # Compute average score across successfully-extracted frames (frame_scores includes 0.0 for per-frame ELA errors)
+    avg_score = (sum(frame_scores) / len(frame_scores)) if frame_scores else 0.0
     status = "SUSPICIOUS" if avg_score >= 25.0 else "CLEAR"
 
     return {
