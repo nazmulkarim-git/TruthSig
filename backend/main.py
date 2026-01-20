@@ -7,7 +7,8 @@ import json
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 import tempfile
-from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, Header
+import base64
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, Header, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -690,8 +691,11 @@ async def get_evidence_artifact(
         )
 
     path: str | None = None
+    artifact_b64: str | None = None
+
     if kind == "heatmap":
         path = results.get("heatmap_path")
+        artifact_b64 = results.get("heatmap_b64")
 
     elif kind == "frame":
         if index is None:
@@ -706,25 +710,35 @@ async def get_evidence_artifact(
         markers = results.get("timeline_markers") or []
         if 0 <= index < len(markers):
             path = (markers[index] or {}).get("heatmap_path")
+            artifact_b64 = (markers[index] or {}).get("heatmap_b64")
 
-    if not path:
+    if not path and not artifact_b64:
         raise HTTPException(
             status_code=404,
             detail=f"Artifact '{kind}' not available for this evidence",
         )
 
-    safe_root = os.path.abspath(ARTIFACT_DIR)
-    abs_path = os.path.abspath(path)
+    # If we have a path, enforce safe root checks before serving
+    if path:
+        safe_root = os.path.abspath(ARTIFACT_DIR)
+        abs_path = os.path.abspath(path)
 
-    # Prevent path traversal / serving arbitrary files
-    if os.path.commonpath([safe_root, abs_path]) != safe_root:
-        raise HTTPException(status_code=400, detail="Invalid artifact path")
+        # Prevent path traversal / serving arbitrary files
+        if os.path.commonpath([safe_root, abs_path]) != safe_root:
+            raise HTTPException(status_code=400, detail="Invalid artifact path")
 
-    if not os.path.exists(abs_path):
-        raise HTTPException(status_code=404, detail="Artifact not available (file missing)")
+        if os.path.exists(abs_path):
+            return FileResponse(abs_path, media_type="image/png")
 
-    # You can optionally branch media_type based on file extension if needed.
-    return FileResponse(abs_path, media_type="image/png")
+    # Fallback: serve from base64 if file is missing (common on Render with multiple instances)
+    if artifact_b64:
+        try:
+            data = base64.b64decode(artifact_b64)
+            return Response(content=data, media_type="image/png")
+        except Exception:
+            pass
+
+    raise HTTPException(status_code=404, detail="Artifact not available (file missing)")
 
 
 @app.post("/cases/{case_id}/evidence/{evidence_id}/report")

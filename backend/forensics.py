@@ -4,6 +4,7 @@ import io
 import math
 import os
 import tempfile
+import base64
 from typing import Any, Dict, List, Optional
 
 from PIL import Image, ImageChops, ImageStat
@@ -31,36 +32,40 @@ def image_ela(path: str, output_dir: Optional[str] = None) -> Dict[str, Any]:
     try:
         _ensure_dir(ARTIFACT_DIR)
         base = os.path.splitext(os.path.basename(path))[0]
-        out_dir = _ensure_dir(
-            output_dir or os.path.join(ARTIFACT_DIR, f"ela_{base}")
-        )
+        out_dir = _ensure_dir(output_dir or os.path.join(ARTIFACT_DIR, f"ela_{base}"))
+
         with Image.open(path) as img:
             img = img.convert("RGB")
             buffer = io.BytesIO()
             img.save(buffer, "JPEG", quality=85)
             buffer.seek(0)
+
             with Image.open(buffer) as recompressed:
                 recompressed = recompressed.convert("RGB")
                 diff = ImageChops.difference(img, recompressed)
                 diff = diff.point(lambda x: min(255, x * 10))
+
                 heatmap_path = os.path.join(out_dir, "ela_heatmap.png")
                 diff.save(heatmap_path, "PNG")
 
                 if not os.path.exists(heatmap_path):
                     raise RuntimeError("ELA heatmap was not written to disk")
 
+                # Store the artifact inline (base64) so GET works even if filesystem is ephemeral
+                with open(heatmap_path, "rb") as f:
+                    heatmap_b64 = base64.b64encode(f.read()).decode("utf-8")
+
                 stat = ImageStat.Stat(diff)
                 mean_diff = _safe_mean(stat)
 
         status = "SUSPICIOUS" if mean_diff >= 25.0 else "CLEAR"
         summary = f"ELA mean diff intensity: {mean_diff:.1f}"
-        suspicious_note = (
-            "Higher ELA intensity can indicate edits or heavy compression regions."
-        )
+        suspicious_note = "Higher ELA intensity can indicate edits or heavy compression regions."
 
         return {
             "status": status,
             "heatmap_path": heatmap_path,
+            "heatmap_b64": heatmap_b64,
             "heatmap_summary": summary,
             "suspicious_regions_note": suspicious_note,
             "mean_diff": mean_diff,
