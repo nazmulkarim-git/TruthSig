@@ -12,7 +12,7 @@ from backend.utils import run_cmd, which
 
 ARTIFACT_DIR = os.getenv(
     "TRUTHSIG_ARTIFACT_DIR",
-    "/data/truthsig_artifacts"
+    "/tmp/truthsig_artifacts"
 )
 
 
@@ -101,6 +101,7 @@ def video_forensics(
     *,
     duration_s: Optional[float] = None,
     frame_count: int = 12,
+    output_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     if not which("ffmpeg"):
         return {

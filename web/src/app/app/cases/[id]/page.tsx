@@ -192,8 +192,8 @@ export default function CasePage() {
       );
 
       if (!res.ok) {
-        // Optional: console log for debugging
-        // console.error("Heatmap fetch failed:", res.status);
+        const msg = await res.text().catch(() => "");
+        console.error("Heatmap fetch failed:", res.status, msg);
         return;
       }
 

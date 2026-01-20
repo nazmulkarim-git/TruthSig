@@ -675,20 +675,19 @@ async def get_evidence_artifact(
         raise HTTPException(status_code=404, detail="Evidence not found")
 
     analysis = _ensure_dict(evidence.get("analysis_json"))
-    forensics = analysis.get("forensics")
+    forensics = _ensure_dict(analysis.get("forensics"))
+    results = _ensure_dict(forensics.get("results"))
 
-    # No forensics section at all (analysis not run / not persisted)
-    if not forensics:
+    if not forensics or not results:
         raise HTTPException(status_code=404, detail="No forensics available for this evidence")
 
-    # Forensics ran but failed (don’t pretend artifacts exist)
-    if forensics.get("status") != "OK":
+    status = results.get("status")
+    # Treat only hard-fail statuses as missing artifacts
+    if status in {"ERROR", "NOT_AVAILABLE"}:
         raise HTTPException(
             status_code=404,
-            detail=forensics.get("explanation", "Forensics did not produce artifacts"),
+            detail=results.get("explanation", "Forensics did not produce artifacts"),
         )
-
-    results = forensics.get("results") or {}
 
     path: str | None = None
     if kind == "heatmap":
