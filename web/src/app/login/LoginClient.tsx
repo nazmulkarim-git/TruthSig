@@ -49,7 +49,7 @@ export default function LoginClient() {
           <div className="text-xs font-medium text-blue-700">TruthSig</div>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight">Sign in</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Evidence workspace · Cases · Chain of custody
+            Newsroom workspace · Cases · Chain of custody
           </p>
         </div>
 
@@ -84,7 +84,7 @@ export default function LoginClient() {
         </Card>
 
         <div className="mt-6 text-xs text-slate-500 text-center">
-          Provenance-first. No guessing. Court/claims-grade chain of custody.
+          Provenance-first. No guessing. Newsroom-grade chain of custody.
         </div>
       </div>
     </div>
